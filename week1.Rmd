@@ -1,0 +1,129 @@
+Method 1: Separate Regressions
+
+Step 1. Simulate Xi = (x1, x2, ..., xn) from a known distribution (uniform, poisson, normal).
+
+Step 2. Given Xi, simulate (Yi(0), Yi(1)) from a known distribution (normal, with constant/Xi-related variance) where E(Yi(t) | Xi) is a linear combination of Xi, t = 0 or 1.
+
+Step 3. Assign 0 or 1 equally possible and independent of Y to Ti. Consider 1 as treated and 0 as given placebo.
+
+Step 4. Denote miut(x) as E(Y(t) | X = x). Regress all Yi(0) on Xi where Ti = 0 to get miuhat0(x), and regress all Yi(1) on Xi where Ti = 1 to get miuhat1(x).
+
+Step 5. Denote tao(x) = miu1(x) - miu0(x). MSE on taohat(x).
+
+```{r}
+#Step 1.
+
+age <- rpois(1000, 27)
+sex <- rbinom(1000, 1, 0.5) #0 as female
+race <- round(runif(1000, 0, 4))
+race[which(race==4)] <- 0 #has 4 type: 0: Asian; 1: Black; 2: White; 3: Hispanic
+race[which(race==0)] <- "Asian"
+race[which(race==1)] <- "Black"
+race[which(race==2)] <- "White"
+race[which(race==3)] <- "Hispanic"
+
+#Step 2.
+
+race0 <- c(1000, 0)
+race0[which(race=="Asian")] <- 50000 #Asians are specially sensitive to this disease
+race0[which(race=="Black")] <- 1000 #Blacks are relatively "immune"
+race0[which(race=="White")] <- 20000
+race0[which(race=="Hispanic")] <- 10000
+y0 <- 1000 * age + 5000 * sex + race0 + rnorm(1000, 0, 1000)
+
+race1 <- c(1000, 0)
+race1[which(race=="Asian")] <- 5000 #Asians are easily cured
+race1[which(race=="Black")] <- 500
+race1[which(race=="White")] <- 15000 #Whites are insensitive to treatment
+race1[which(race=="Hispanic")] <- 5000
+y1 <- 10 * age + 100 * sex + race1 + rnorm(1000, 0, 50)
+
+#Step 3.
+
+t <- rbinom(100, 1, 0.5) #0 as given placebo
+```
+
+```{r}
+A <- data.frame(y0, y1, t, age, sex, race)
+A
+```
+
+```{r}
+#Step 4.
+
+A0 <- subset(A, t == 0)
+miuhat0 <- lm(y0 ~ age + sex + race, data = A0)
+A1 <- subset(A, t == 1)
+miuhat1 <- lm(y1 ~ age + sex + race, data = A1)
+
+miuhat0
+#The true model is y0 = 1000*age + 5000*sex + 50000*Asian + 1000*Black + 20000*White + 10000*Hispanic + N(0, 1000)
+miuhat1
+#The true model is y1 = 10*age + 100*sex + 5000*Asian + 500*Black + 15000*White + 5000*Hispanic + N(0, 50)
+#both fit well.
+```
+
+```{r}
+#Step 5.
+
+EY1 <- as.vector(as.matrix(cbind(age, sex, race1)) %*% c(10, 100, 1))
+EY0 <- as.vector(as.matrix(cbind(age, sex, race0)) %*% c(1000, 5000, 1))
+EY1hat <- predict(miuhat1, A[4:6])
+EY0hat <- predict(miuhat0, A[4:6])
+MSE <- sum(((EY1 - EY0) - (EY1hat - EY0hat)) * ((EY1 - EY0) - (EY1hat - EY0hat))) / 999
+MSE
+```
+
+
+
+
+
+Method 2: Same Regressions
+
+```{r}
+B <- data.frame(yobs = rep(0, 1000), y0, y1, t, age, sex, race)
+B$yobs[B$t == 0] <- B$y0[B$t == 0]
+B$yobs[B$t == 1] <- B$y1[B$t == 1]
+B
+```
+
+```{r}
+miuhat <- lm(yobs ~ t + age + sex + race, data = B)
+miuhat
+```
+
+```{r}
+EY1 <- as.vector(as.matrix(cbind(age, sex, race1)) %*% c(10, 100, 1))
+EY0 <- as.vector(as.matrix(cbind(age, sex, race0)) %*% c(1000, 5000, 1))
+EY1hatB <- predict(miuhat, data.frame(t = 1, B[5:7]))
+EY0hatB <- predict(miuhat, data.frame(t = 0, B[5:7]))
+MSE <- sum(((EY1 - EY0) - (EY1hatB - EY0hatB)) * ((EY1 - EY0) - (EY1hatB - EY0hatB))) / 999
+MSE
+```
+
+
+
+
+Method 3: Modified Outcome Regression.
+
+```{r}
+C <- B
+C$yobs[C$t == 0] <- -2 * C$y0[C$t == 0]
+C$yobs[C$t == 1] <- 2 * C$y1[C$t == 1]
+C
+```
+
+```{r}
+miuhatC <- lm(yobs ~ age + sex + race, data = C)
+miuhatC
+```
+
+```{r}
+EY1 <- as.vector(as.matrix(cbind(age, sex, race1)) %*% c(10, 100, 1))
+EY0 <- as.vector(as.matrix(cbind(age, sex, race0)) %*% c(1000, 5000, 1))
+taohatC <- predict(miuhatC, C[5:7])
+MSE <- sum(((EY1 - EY0) - taohatC) * ((EY1 - EY0) - taohatC)) / 999
+MSE
+```
+
+
